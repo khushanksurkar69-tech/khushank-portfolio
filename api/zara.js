@@ -42,8 +42,11 @@ module.exports = async (req, res) => {
   let lastError = 'Could not reach the AI service.';
   for (const model of MODELS) {
     try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 16000);
       const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
+        signal: ctl.signal,
         headers: {
           'Content-Type': 'application/json',
           Authorization: 'Bearer ' + process.env.OPENROUTER_API_KEY,
@@ -58,6 +61,7 @@ module.exports = async (req, res) => {
           reasoning: { effort: 'low' }
         })
       });
+      clearTimeout(timer);
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { lastError = (data.error && data.error.message) || ('Upstream error ' + r.status); continue; }
       const m = data.choices && data.choices[0] && data.choices[0].message;
@@ -65,7 +69,7 @@ module.exports = async (req, res) => {
       if (reply) return send(200, { reply });
       lastError = 'Empty reply from model.';
     } catch (e) {
-      lastError = 'Could not reach the AI service.';
+      lastError = e && e.name === 'AbortError' ? 'The AI model took too long to answer.' : 'Could not reach the AI service.';
     }
   }
   return send(502, { error: lastError });
